@@ -85,6 +85,28 @@ if not getattr(sys, "frozen", False):
         logger.warning("文件日志初始化失败, 仅输出到终端: %s", _e)
 
 
+def _bootstrap_instruments_on_startup(repo: KlineRepository) -> None:
+    """数据源已加载后补偿首次证券主数据初始化。"""
+    try:
+        result = daily_pipeline.bootstrap_instruments_if_needed(repo)
+    except Exception:
+        logger.exception("startup instruments bootstrap failed")
+        return
+
+    status = result.get("status")
+    if status == "synced":
+        logger.info(
+            "startup instruments bootstrap done (provider=%s, rows=%s)",
+            result.get("provider"),
+            result.get("instruments_rows"),
+        )
+    elif status == "empty":
+        logger.warning(
+            "startup instruments bootstrap returned empty (provider=%s)",
+            result.get("provider"),
+        )
+
+
 @asynccontextmanager
 async def _application_lifespan(app: FastAPI):
     logger.info(
@@ -142,6 +164,10 @@ async def _application_lifespan(app: FastAPI):
         logger.info("custom data sources loaded: %d", len(custom_sources.list_sources()))
     except Exception as e:  # noqa: BLE001
         logger.warning("custom data sources init failed: %s", e)
+
+    # 数据源偏好可能已在上次运行中保存, 而同步请求被重载/进程退出打断。
+    # 每次启动轻量检查一次, 空维表时复用既有 provider bootstrap 自愈。
+    _bootstrap_instruments_on_startup(repo)
 
     # 自定义源必须先注册,能力探测才能补充其数据集能力。
     capset = detect_capabilities()

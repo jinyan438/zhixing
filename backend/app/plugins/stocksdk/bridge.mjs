@@ -27,7 +27,12 @@
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { execSync } from 'node:child_process'
+import dns from 'node:dns'
 import path from 'node:path'
+
+// Some Windows networks resolve Eastmoney hosts to an unusable IPv6 route first.
+// Prefer IPv4 while retaining Node's normal fallback behavior for all SDK requests.
+dns.setDefaultResultOrder('ipv4first')
 
 /**
  * 解析 stock-sdk 入口。ESM 的 bare import 只查本地 node_modules 链，不查全局，

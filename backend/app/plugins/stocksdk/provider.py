@@ -279,6 +279,12 @@ class StockSDKProvider:
         normalized: list[dict] = []
         for row in rows:
             item = dict(row)
+            # 腾讯全量行情对 688 科创板返回股数, 其他 A 股返回手数;
+            # provider 入口统一为手, 按上游明确的板块代码规则转换。
+            symbol = str(item.get("symbol") or "")
+            if item.get("volume") is not None:
+                volume = float(item["volume"])
+                item["volume"] = volume / 100 if symbol.startswith("688") else volume
             # stock-sdk 的 changePercent 是百分数值(-1.15 = -1.15%);
             # provider 入口契约统一使用小数制(-0.0115 = -1.15%)。
             if item.get("change_pct") is not None:

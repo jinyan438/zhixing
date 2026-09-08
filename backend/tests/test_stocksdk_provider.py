@@ -11,6 +11,7 @@ import shutil
 import subprocess
 
 import polars as pl
+import pytest
 
 from app.plugins.stocksdk import bridge
 from app.plugins.stocksdk import provider as sp
@@ -81,17 +82,29 @@ def test_get_minute_datetime_is_beijing_wall_clock(monkeypatch):
 
 
 def test_get_realtime_normalizes_units_without_mutating_bridge_rows(monkeypatch):
-    rows = [{"symbol": "600519.SH", "name": "贵州茅台", "last_price": 1200.0,
-             "prev_close": 1194.0, "open": 1186.0, "high": 1203.0, "low": 1180.0,
-             "volume": 16325, "amount": 159095, "change_pct": -1.15,
-             "timestamp": 1787193740000}]
+    rows = [
+        {"symbol": "600519.SH", "name": "贵州茅台", "last_price": 1200.0,
+         "prev_close": 1194.0, "open": 1186.0, "high": 1203.0, "low": 1180.0,
+         "volume": 16325, "amount": 159095, "change_pct": -1.15,
+         "timestamp": 1787193740000},
+        {"symbol": "688126.SH", "name": "沪硅产业", "last_price": 22.82,
+         "prev_close": 23.13, "open": 23.10, "high": 23.36, "low": 22.78,
+         "volume": 35011140, "amount": 80704, "change_pct": -1.34,
+         "timestamp": 1788855277000},
+    ]
     _patch_run_job(monkeypatch, {"realtime": {"ok": True, "op": "realtime", "rows": rows}})
     out = StockSDKProvider().get_realtime()
     assert abs(out[0]["change_pct"] - (-0.0115)) < 1e-12
     assert out[0]["amount"] == 1_590_950_000
+    assert out[0]["volume"] == 16325
     assert out[0]["timestamp"] == 1787193740000
+    assert out[1]["change_pct"] == pytest.approx(-0.0134)
+    assert out[1]["amount"] == 807_040_000
+    assert out[1]["volume"] == pytest.approx(350_111.4)
     assert rows[0]["change_pct"] == -1.15
     assert rows[0]["amount"] == 159095
+    assert rows[0]["volume"] == 16325
+    assert rows[1]["volume"] == 35011140
     required = {"symbol", "last_price", "prev_close", "open", "high", "low", "volume"}
     assert required <= set(out[0].keys())
 
@@ -161,8 +174,10 @@ def test_bridge_mjs_resolves_local_sdk_and_maps_realtime_timestamp(tmp_path):
         encoding="utf-8",
     )
     (pkg_dir / "index.js").write_text(
-        """export class StockSDK {
-  static version = 'fake-local'
+        """import dns from 'node:dns'
+
+export class StockSDK {
+  static version = dns.getDefaultResultOrder()
   constructor() {
     this.batch = { cn: async () => [{
       code: '600519', marketId: '1', name: '贵州茅台', price: 1200,
@@ -187,7 +202,7 @@ def test_bridge_mjs_resolves_local_sdk_and_maps_realtime_timestamp(tmp_path):
 
     assert proc.returncode == 0
     result = json.loads(proc.stdout)
-    assert result == {"ok": True, "op": "ping", "version": "fake-local"}
+    assert result == {"ok": True, "op": "ping", "version": "ipv4first"}
     realtime_proc = subprocess.run(
         ["node", str(bridge_path)],
         input=json.dumps({"op": "realtime"}),
