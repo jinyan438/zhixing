@@ -43,6 +43,10 @@ BACKEND_HOST="${HOST:-${ENV_HOST:-0.0.0.0}}"
 # Keep BACKEND_PORT as a backwards-compatible explicit override.
 BACKEND_PORT="${BACKEND_PORT:-${PORT:-${ENV_PORT:-3118}}}"
 FRONTEND_PORT="${FRONTEND_PORT:-3111}"
+BACKEND_PROBE_HOST="$BACKEND_HOST"
+if [[ "$BACKEND_PROBE_HOST" == "0.0.0.0" || "$BACKEND_PROBE_HOST" == "::" ]]; then
+  BACKEND_PROBE_HOST="127.0.0.1"
+fi
 UVICORN_ENV_ARGS=()
 if [[ -f "$ROOT/.env" ]]; then
   UVICORN_ENV_ARGS=(--env-file "$ROOT/.env")
@@ -92,6 +96,7 @@ require_cmd uv   "curl -LsSf https://astral.sh/uv/install.sh | sh"
 require_cmd pnpm "npm i -g pnpm   或   corepack enable && corepack prepare pnpm@9 --activate"
 require_cmd node "安装 Node.js 18+"
 require_cmd npm  "安装 Node.js 18+（需包含 npm）"
+require_cmd curl "安装 curl"
 
 # ===== 2. 端口占用检查 —— 占用就直接 kill =====
 free_port() {
@@ -152,6 +157,7 @@ fi
 PIDS=()
 
 cleanup() {
+  local exit_code="${1:-0}"
   echo
   info "关闭服务..."
   for pid in "${PIDS[@]:-}"; do
@@ -162,13 +168,33 @@ cleanup() {
   # 等子进程退出,避免孤儿
   wait 2>/dev/null || true
   ok "已退出"
-  exit 0
+  exit "$exit_code"
 }
 trap cleanup INT TERM
 
 # 用 awk 加前缀(macOS sed 没有 -u line-buffered,改用 awk + fflush 兼容)
 prefix_awk() {
   awk -v p="$1" '{ print p $0; fflush() }'
+}
+
+wait_for_backend() {
+  local url="http://${BACKEND_PROBE_HOST}:${BACKEND_PORT}/health"
+  local timeout=90
+  local deadline=$((SECONDS + timeout))
+  info "等待后端就绪: $url"
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "${PIDS[0]}" 2>/dev/null; then
+      err "后端进程已退出,请查看上方 backend 日志"
+      return 1
+    fi
+    if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
+      ok "后端已就绪"
+      return 0
+    fi
+    sleep 0.5
+  done
+  err "后端在 ${timeout}s 内未就绪: $url"
+  return 1
 }
 
 echo
@@ -193,6 +219,11 @@ echo
     | prefix_awk "$(printf "${BLUE}[backend ]${NC} ")"
 ) &
 PIDS+=("$!")
+
+if ! wait_for_backend; then
+  trap - INT TERM
+  cleanup 1
+fi
 
 (
   cd "$FRONTEND_DIR"

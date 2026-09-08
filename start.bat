@@ -93,17 +93,22 @@ if "%FRONTEND_READY%"=="0" (
   if errorlevel 1 exit /b 1
 )
 
-echo [3/4] Starting services...
-if "%BACKEND_READY%"=="0" start "Zhixing Backend" /D "%ROOT%" %ComSpec% /k call "%~f0" --backend
+echo [3/4] Starting backend...
+if "%BACKEND_READY%"=="0" (
+  start "Zhixing Backend" /D "%ROOT%" %ComSpec% /k call "%~f0" --backend
+  echo [4/4] Waiting for backend to become ready...
+  call :wait_for_url "http://127.0.0.1:%BACKEND_PORT%/health" 90
+  if errorlevel 1 (
+    echo [ERROR] Backend did not become ready. Check the Zhixing Backend window.
+    pause
+    exit /b 1
+  )
+  set "BACKEND_READY=1"
+)
+
 if "%FRONTEND_READY%"=="0" start "Zhixing Frontend" /D "%ROOT%" %ComSpec% /k call "%~f0" --frontend
 
-echo [4/4] Waiting for the project to become ready...
-call :wait_for_url "http://127.0.0.1:%BACKEND_PORT%/health" 90
-if errorlevel 1 (
-  echo [ERROR] Backend did not become ready. Check the Zhixing Backend window.
-  pause
-  exit /b 1
-)
+echo [4/4] Waiting for frontend to become ready...
 call :wait_for_url "http://127.0.0.1:%FRONTEND_PORT%/watchlist" 60
 if errorlevel 1 (
   echo [ERROR] Frontend did not become ready. Check the Zhixing Frontend window.

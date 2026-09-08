@@ -47,6 +47,7 @@ $DotEnvHost = Read-DotEnvValue $EnvFile 'HOST'
 $DotEnvPort = Read-DotEnvValue $EnvFile 'PORT'
 $BindAddress = if ($env:HOST) { $env:HOST } elseif ($DotEnvHost) { $DotEnvHost } else { '0.0.0.0' }
 $DisplayHost = if ($BindAddress -in @('0.0.0.0', '::')) { 'localhost' } else { $BindAddress }
+$BackendProbeHost = if ($BindAddress -in @('0.0.0.0', '::')) { '127.0.0.1' } else { $BindAddress }
 
 # Port precedence: CLI arg > BACKEND_PORT env > PORT env > .env PORT > default
 if ($BackendPort -le 0) {
@@ -217,18 +218,6 @@ $backendJob = Start-Job -Name 'backend' -ScriptBlock {
     & .\.venv\Scripts\python.exe -m uvicorn app.main:app @envArgs --reload --host $bindAddress --port $port 2>&1
 } -ArgumentList $backendPidFile, $BackendDir, $EnvFile, $BindAddress, $BackendPort
 
-$frontendJob = Start-Job -Name 'frontend' -ScriptBlock {
-    param($pidFile, $dir, $bindAddress, $backendPort, $port)
-    # 同上: job 子进程默认 GBK, pnpm/前端工具链也是 UTF-8 输出, 需对齐。
-    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
-    $OutputEncoding           = New-Object System.Text.UTF8Encoding $false
-    $PID | Out-File -FilePath $pidFile -Encoding ascii -Force
-    Set-Location $dir
-    $env:BACKEND_HOST = $bindAddress
-    $env:BACKEND_PORT = [string]$backendPort
-    & pnpm dev --host $bindAddress --port $port 2>&1
-} -ArgumentList $frontendPidFile, $FrontendDir, $BindAddress, $BackendPort, $FrontendPort
-
 # Wait up to 5 seconds for the PID files to materialise
 function Read-JobPid($file) {
     for ($i = 0; $i -lt 50; $i++) {
@@ -241,6 +230,51 @@ function Read-JobPid($file) {
     return $null
 }
 $backendChildPid  = Read-JobPid $backendPidFile
+
+function Wait-BackendReady($job, $url, $timeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ($job.State -in @('Failed', 'Stopped', 'Completed')) { return $false }
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) { return $true }
+        } catch {}
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
+$backendHealthUrl = "http://${BackendProbeHost}:$BackendPort/health"
+Log-Info "waiting for backend: $backendHealthUrl"
+if (-not (Wait-BackendReady $backendJob $backendHealthUrl 90)) {
+    Log-Err 'backend did not become ready within 90 seconds'
+    $backendOutput = Receive-Job $backendJob -ErrorAction SilentlyContinue
+    if ($backendOutput) {
+        foreach ($line in $backendOutput) {
+            Write-Host '[backend ] ' -NoNewline -ForegroundColor Blue
+            Write-Host $line
+        }
+    }
+    if ($backendChildPid) { $null = & cmd /c "taskkill /F /T /PID $backendChildPid 2>nul" }
+    Stop-Job $backendJob -ErrorAction SilentlyContinue
+    Remove-Job $backendJob -Force -ErrorAction SilentlyContinue
+    Remove-Item $backendPidFile, $frontendPidFile -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+Log-Ok 'backend is ready'
+
+$frontendJob = Start-Job -Name 'frontend' -ScriptBlock {
+    param($pidFile, $dir, $bindAddress, $backendPort, $port)
+    # 同上: job 子进程默认 GBK, pnpm/前端工具链也是 UTF-8 输出, 需对齐。
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $OutputEncoding           = New-Object System.Text.UTF8Encoding $false
+    $PID | Out-File -FilePath $pidFile -Encoding ascii -Force
+    Set-Location $dir
+    $env:BACKEND_HOST = $bindAddress
+    $env:BACKEND_PORT = [string]$backendPort
+    & pnpm dev --host $bindAddress --port $port 2>&1
+} -ArgumentList $frontendPidFile, $FrontendDir, $BindAddress, $BackendPort, $FrontendPort
+
 $frontendChildPid = Read-JobPid $frontendPidFile
 
 # ===== 6. Cleanup =====
