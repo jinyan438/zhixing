@@ -1975,7 +1975,14 @@ export const api = {
       body: JSON.stringify({ provider, dataset, symbols, config }),
     }),
   updateDataProviders: (cfg: Partial<Pick<Preferences, ProviderField>>) =>
-    request<Pick<Preferences, ProviderField>>(
+    request<Pick<Preferences, ProviderField> & {
+      instruments_bootstrap?: {
+        status: 'ready' | 'synced' | 'empty' | 'skipped' | 'failed'
+        provider: string
+        instruments_rows: number
+        error?: string
+      }
+    }>(
       '/api/settings/preferences/data-providers',
       { method: 'PUT', body: JSON.stringify(cfg) },
     ),

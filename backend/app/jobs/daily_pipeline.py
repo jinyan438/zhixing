@@ -183,6 +183,32 @@ def run_instruments_sync(repo: KlineRepository) -> dict:
     return {"instruments_rows": rows}
 
 
+def bootstrap_instruments_if_needed(repo: KlineRepository) -> dict:
+    """首次部署/切换数据源后,按当前日 K provider 补齐证券主数据。
+
+    TickFlow 保持原有手动管道语义;非 TickFlow provider 已被用户显式选中时,
+    instruments 为空会直接导致搜索和批量导入全部失配,因此在路由切换处立即补齐。
+    """
+    current = repo.get_instruments()
+    if not current.is_empty() and "symbol" in current.columns:
+        return {
+            "status": "ready",
+            "provider": _prefs.get_daily_data_provider(),
+            "instruments_rows": current.height,
+        }
+
+    provider = _prefs.get_daily_data_provider()
+    if provider == "tickflow":
+        return {"status": "skipped", "provider": provider, "instruments_rows": 0}
+
+    result = run_instruments_sync(repo)
+    rows = int(result.get("instruments_rows", 0) or 0)
+    status = "synced" if rows > 0 else "empty"
+    if rows == 0:
+        logger.warning("首次证券主数据同步为空 (provider=%s)", provider)
+    return {"status": status, "provider": provider, "instruments_rows": rows}
+
+
 def run_now(
     repo: KlineRepository,
     capset: CapabilitySet,

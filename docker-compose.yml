@@ -8,6 +8,8 @@ services:
       args:
         BACKEND_EXTRAS: ${BACKEND_EXTRAS:-}
         CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-0.144.3}
+        # 本项目已整合 stock-sdk；设为 0 可显式关闭第三方行情插件。
+        INCLUDE_STOCKSDK: ${INCLUDE_STOCKSDK:-1}
     container_name: Zhixing_Stock_Panel
     ports:
       - "${HOST:-0.0.0.0}:${PORT:-3118}:3118"

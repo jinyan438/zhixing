@@ -21,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 $Root        = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir  = Join-Path $Root 'backend'
 $FrontendDir = Join-Path $Root 'frontend'
+$StockSdkDir = Join-Path $BackendDir 'app\plugins\stocksdk'
 $EnvFile     = Join-Path $Root '.env'
 
 # Read only launcher-owned keys. Do not execute .env as PowerShell code.
@@ -78,6 +79,8 @@ function Require-Cmd($cmd, $hint) {
 
 Require-Cmd 'uv'   'powershell -c "irm https://astral.sh/uv/install.ps1 | iex"   OR   winget install --id=astral-sh.uv'
 Require-Cmd 'pnpm' 'npm i -g pnpm   OR   corepack enable; corepack prepare pnpm@9 --activate'
+Require-Cmd 'node' 'winget install OpenJS.NodeJS.LTS'
+Require-Cmd 'npm'  'winget install OpenJS.NodeJS.LTS'
 
 # ===== 2. Port check - kill anything listening on the target ports =====
 function Free-Port($name, $port) {
@@ -171,6 +174,15 @@ if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {
     try { & pnpm install } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { Log-Err 'pnpm install failed'; exit 1 }
     Log-Ok 'frontend deps installed'
+}
+
+$StockSdkPackage = Join-Path $StockSdkDir 'node_modules\stock-sdk\package.json'
+if (-not (Test-Path $StockSdkPackage)) {
+    Log-Info 'installing stock-sdk market data plugin...'
+    Push-Location $StockSdkDir
+    try { & npm ci --omit=dev --no-audit --no-fund } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { Log-Err 'stock-sdk dependency install failed'; exit 1 }
+    Log-Ok 'stock-sdk market data plugin is ready'
 }
 
 # ===== 4. Banner (ASCII so it renders on any codepage) =====

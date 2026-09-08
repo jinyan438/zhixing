@@ -13,6 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
+STOCKSDK_DIR="$BACKEND_DIR/app/plugins/stocksdk"
 
 # Read only the launcher-owned keys from .env. Do not source the whole file:
 # .env is data, not a shell script, and may contain values that are unsafe or
@@ -89,6 +90,8 @@ require_cmd() {
 
 require_cmd uv   "curl -LsSf https://astral.sh/uv/install.sh | sh"
 require_cmd pnpm "npm i -g pnpm   或   corepack enable && corepack prepare pnpm@9 --activate"
+require_cmd node "安装 Node.js 18+"
+require_cmd npm  "安装 Node.js 18+（需包含 npm）"
 
 # ===== 2. 端口占用检查 —— 占用就直接 kill =====
 free_port() {
@@ -137,6 +140,12 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
   info "前端首次启动 — 安装 Node 依赖..."
   ( cd "$FRONTEND_DIR" && pnpm install )
   ok "前端依赖装好了"
+fi
+
+if [ ! -f "$STOCKSDK_DIR/node_modules/stock-sdk/package.json" ]; then
+  info "安装 stock-sdk 行情插件依赖..."
+  ( cd "$STOCKSDK_DIR" && npm ci --omit=dev --no-audit --no-fund )
+  ok "stock-sdk 行情插件已就绪"
 fi
 
 # ===== 4. 启动 + 日志前缀 =====

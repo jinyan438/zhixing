@@ -554,9 +554,9 @@ function DataSourceStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
 
 // 自动路由的默认优先级 (前者可用的能力优先归前者)
 const ROUTE_PRIORITY = [
+  { name: 'stocksdk', display: 'stock-sdk' },
   { name: 'tickflow', display: 'TickFlow' },
   { name: 'fuyao', display: 'fuyao' },
-  { name: 'stocksdk', display: 'stock-sdk' },
 ]
 
 function ResultStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
@@ -595,7 +595,13 @@ function ResultStep({ onNext, onBack }: { onNext: () => void; onBack: () => void
       return
     }
     api.updateDataProviders(desired)
-      .then(() => {
+      .then((result) => {
+        const bootstrap = result.instruments_bootstrap
+        if (bootstrap && (bootstrap.status === 'empty' || bootstrap.status === 'failed')) {
+          throw new Error(
+            bootstrap.error || `${bootstrap.provider} 未能拉取证券主数据，请检查插件依赖和网络`,
+          )
+        }
         setAppliedChanges(changes)
         return qc.invalidateQueries({ queryKey: QK.preferences })
       })
@@ -620,7 +626,7 @@ function ResultStep({ onNext, onBack }: { onNext: () => void; onBack: () => void
       </div>
       <p className="mt-2.5 text-sm text-secondary leading-relaxed">
         进入本步时已按默认优先级
-        <span className="text-foreground font-medium"> TickFlow → fuyao → stock-sdk </span>
+        <span className="text-foreground font-medium"> stock-sdk → TickFlow → fuyao </span>
         自动设置各数据集的路由:前者可用的能力归前者,没有则顺延下一个可用源。后续可随时在
         <span className="text-foreground font-medium"> 设置 → 数据源 </span>按数据集改选。
       </p>

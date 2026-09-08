@@ -139,16 +139,23 @@ def test_grant_does_not_override_tickflow_limits(monkeypatch):
 
 
 def test_update_data_providers_refreshes_capability_snapshot(monkeypatch):
-    """切换数据源后 app.state.capabilities 快照应刷新 (读缓存+增广, 无网络)。"""
+    """切换数据源后刷新能力快照,并在日 K 路由变化时补齐主数据。"""
     from app.api import settings as settings_api
+    from app.jobs import daily_pipeline
 
     monkeypatch.setattr("app.services.preferences.save", lambda upd: None)
     sentinel = CapabilitySet()
     monkeypatch.setattr(settings_api, "detect_capabilities", lambda: sentinel)
+    bootstrap = MagicMock(return_value={
+        "status": "synced", "provider": "mock_src", "instruments_rows": 5557,
+    })
+    monkeypatch.setattr(daily_pipeline, "bootstrap_instruments_if_needed", bootstrap)
 
     mock_request = MagicMock()
-    settings_api.update_data_providers(
+    result = settings_api.update_data_providers(
         MagicMock(model_dump=lambda exclude_none: {"daily_data_provider": "mock_src"}),
         mock_request,
     )
     assert mock_request.app.state.capabilities is sentinel
+    bootstrap.assert_called_once_with(mock_request.app.state.repo)
+    assert result["instruments_bootstrap"]["instruments_rows"] == 5557

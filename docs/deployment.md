@@ -41,17 +41,15 @@ docker compose up --build
 
 Docker 采用两阶段构建,前端 dist 拷进后端镜像,**单容器**运行,数据完全在自己手里。
 
-> ⚠️ **stock-sdk 插件默认不打包(合规考虑)**
+> ⚠️ **本项目的源码 Compose 默认启用 stock-sdk 插件**
 >
-> stock-sdk 数据源本质是抓取第三方财经网站(如东方财富)的行情接口,未经对方授权,可能违反其服务条款并涉及交易所行情版权问题。**出于合规考虑,Docker 默认构建不再内置 stock-sdk 插件依赖**。
+> stock-sdk 数据源本质是抓取第三方财经网站(如东方财富)的行情接口,未经对方授权,可能违反其服务条款并涉及交易所行情版权问题。请自行评估并承担使用责任。
 >
-> - **默认行为**:`docker compose up --build` 构建出的镜像**不含** stock-sdk,插件不可用。
-> - **如确需启用**(自行承担合规责任):
+> - **本源码仓库默认行为**:`docker compose up --build` 会构建 Node.js 运行时并预装 stock-sdk。
+> - **如需关闭**:
 >   ```bash
->   docker compose build --build-arg INCLUDE_STOCKSDK=1
->   docker compose up -d
+>   INCLUDE_STOCKSDK=0 docker compose up --build -d
 >   ```
-> - 启用后镜像会额外内置 Node.js 运行时并预装 stock-sdk 依赖,插件开箱即用。
 > - **建议优先使用 TickFlow 等正规授权数据源。**
 
 更新到新版本:
@@ -81,7 +79,7 @@ cp .env.example .env       # 按需填 TICKFLOW_API_KEY(留空 = None 模式)
 ./dev.sh                   # Windows: .\dev.ps1
 ```
 
-`dev.sh` 自动检查 / 下载依赖、释放端口、同时起前后端,Ctrl-C 一并关闭。默认:
+`dev.sh` / `dev.ps1` 会自动检查并安装 Python、前端及 stock-sdk 插件依赖，释放端口后同时启动前后端。Ctrl-C 一并关闭。默认:
 
 - 后端 → <http://localhost:3018> · 前端 → <http://localhost:3011>
 - 自定义端口:`BACKEND_PORT=8000 FRONTEND_PORT=5173 ./dev.sh`

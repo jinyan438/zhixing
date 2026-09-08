@@ -783,13 +783,14 @@ def test_data_source(req: CustomSourceTestIn) -> dict:
 @router.put("/preferences/data-providers")
 def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
     """保存数据源选择。"""
+    from app.jobs import daily_pipeline
     from app.services import preferences
     updates = req.model_dump(exclude_none=True)
     if updates:
         preferences.save(updates)
-    # 刷新能力快照: 当前 provider 变化会改变自定义源能力增广结果 (读缓存, 无网络请求)
+    # 刷新能力快照: 当前 provider 变化会改变自定义源能力增广结果。
     request.app.state.capabilities = detect_capabilities()
-    return {
+    result = {
         "daily_data_provider": preferences.get_daily_data_provider(),
         "adj_factor_provider": preferences.get_adj_factor_provider(),
         "minute_data_provider": preferences.get_minute_data_provider(),
@@ -798,6 +799,23 @@ def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
         "realtime_data_provider": preferences.get_realtime_data_provider(),
         "financial_data_provider": preferences.get_financial_provider(),
     }
+    # 新机器没有 data/instruments;切到插件日 K 源后立即初始化,否则证券搜索、
+    # 自选批量导入会把所有合法代码都判为“未匹配主数据”。同步失败不回滚路由,
+    # 状态随响应返回,用户仍可在数据页重试。
+    if "daily_data_provider" in updates:
+        try:
+            result["instruments_bootstrap"] = daily_pipeline.bootstrap_instruments_if_needed(
+                request.app.state.repo
+            )
+        except Exception as e:
+            logger.exception("data provider instruments bootstrap failed")
+            result["instruments_bootstrap"] = {
+                "status": "failed",
+                "provider": preferences.get_daily_data_provider(),
+                "instruments_rows": 0,
+                "error": str(e),
+            }
+    return result
 
 
 @router.put("/preferences/data-source-job-timeouts")
